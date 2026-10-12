@@ -110,10 +110,10 @@ export async function mutateEntity(options: MutationOptions): Promise<Record<str
     const current = currentResult.rows[0] as Record<string, unknown>;
     if (current.version !== options.expectedVersion) {
       const events = await client.query(
-        'SELECT DISTINCT field FROM change_event WHERE entity_type = $1 AND entity_id = $2 AND occurred_at >= $3 ORDER BY field',
+        'SELECT field FROM change_event WHERE entity_type = $1 AND entity_id = $2 AND occurred_at >= $3 ORDER BY occurred_at DESC',
         [options.entityType, options.id, current.updated_at],
       );
-      throw new VersionConflictError(current, events.rows.map((row) => String(row.field)));
+      throw new VersionConflictError(current, [...new Set(events.rows.map((row) => String(row.field)))]);
     }
 
     const assignments = fields.map((field, index) => `"${field}" = $${index + 1}`);
@@ -143,4 +143,15 @@ export async function mutateEntity(options: MutationOptions): Promise<Record<str
     }
     return updated;
   });
+}
+
+export async function insertAuditEvents(client: PoolClient, entityType: MutableEntityType, entityId: string,
+                                       actorId: string, changes: Record<string, { old: unknown; new: unknown }>): Promise<void> {
+  for (const [field, values] of Object.entries(changes)) {
+    if (JSON.stringify(values.old) === JSON.stringify(values.new)) continue;
+    await client.query(
+      'INSERT INTO change_event (entity_type, entity_id, field, old_value, new_value, actor_id) VALUES ($1, $2, $3, $4, $5, $6)',
+      [entityType, entityId, field, JSON.stringify(values.old ?? null), JSON.stringify(values.new ?? null), actorId],
+    );
+  }
 }

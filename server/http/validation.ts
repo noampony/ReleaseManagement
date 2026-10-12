@@ -61,6 +61,24 @@ const actionItemFields = {
   jira_key: z.string().regex(/^AV-\d+$/).max(32).nullable().optional(),
   sort_order: z.number().int().nonnegative().optional(),
 };
+export const deploymentListQuerySchema = z.object({
+  category: z.enum(['infrastructure', 'application']).optional(),
+  risk: z.enum(['high', 'medium', 'low']).optional(),
+  state: z.enum(['planned', 'qa', 'in_rollout', 'done', 'reverted']).optional(),
+  owner: uuidSchema.optional(),
+  q: z.string().trim().max(200).optional(),
+}).strict();
+export const idParamSchema = z.object({ id: uuidSchema }).strict();
+export const createDeploymentStepSchema = z.object({
+  sort_order: z.number().int().nonnegative(),
+  label: rolloutStepFields.label,
+  scope_ref_id: rolloutStepFields.scope_ref_id,
+  state: rolloutStepFields.state,
+  clusters_done: rolloutStepFields.clusters_done,
+  clusters_total: rolloutStepFields.clusters_total,
+  occurred_on: rolloutStepFields.occurred_on,
+  note: rolloutStepFields.note,
+}).strict();
 export const createRolloutStepSchema = z.object(rolloutStepFields).strict();
 export const updateRolloutStepSchema = z.object(rolloutStepFields).partial().extend({ version: versionSchema }).strict()
   .refine((body) => Object.keys(body).some((key) => key !== 'version'), {
@@ -81,12 +99,13 @@ export const updateCommentSchema = z.object({ body: commentFields.body, version:
 export const reorderRolloutStepsSchema = z.object({
   deployment_id: uuidSchema,
   version: versionSchema,
-  ordered_ids: z.array(uuidSchema).min(1).max(500),
+  ordered_ids: z.array(uuidSchema).max(500),
 }).strict().refine((body) => new Set(body.ordered_ids).size === body.ordered_ids.length, {
   message: 'Step IDs must be unique',
   path: ['ordered_ids'],
 });
 export const versionedMutationSchema = z.object({ version: versionSchema }).strict();
+export const doneDeploymentSchema = z.object({ version: versionSchema }).strict();
 
 export function validateBody(schema: ZodTypeAny): RequestHandler {
   return (request, _response, next) => {
@@ -102,6 +121,44 @@ export function validateBody(schema: ZodTypeAny): RequestHandler {
     request.body = result.data;
     next();
   };
+}
+
+export function validateQuery(schema: ZodTypeAny): RequestHandler {
+  return (request, _response, next) => {
+    const result = schema.safeParse(request.query);
+    if (!result.success) {
+      next(new ValidationError(result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+        code: issue.code,
+      }))));
+      return;
+    }
+    Object.defineProperty(request, 'validatedQuery', { value: result.data, configurable: true });
+    next();
+  };
+}
+
+export function validateParams(schema: ZodTypeAny): RequestHandler {
+  return (request, _response, next) => {
+    const result = schema.safeParse(request.params);
+    if (!result.success) {
+      next(new ValidationError(result.error.issues.map((issue) => ({
+        path: issue.path.join('.'),
+        message: issue.message,
+        code: issue.code,
+      }))));
+      return;
+    }
+    request.params = result.data;
+    next();
+  };
+}
+
+declare global {
+  namespace Express {
+    interface Request { validatedQuery?: Record<string, unknown> }
+  }
 }
 
 export class ValidationError extends Error {

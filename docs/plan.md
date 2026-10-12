@@ -282,7 +282,7 @@ Hard rules for the implementation:
 
 `server/auth/index.ts` exports `getUser(req): Promise<User | null>` backed by a provider chosen by `AUTH_PROVIDER`:
 - `dev-stub` (default in development): reads a user from a signed dev cookie set by a `/api/dev/login` route that only mounts when `NODE_ENV !== 'production'`. Picking a user from a dropdown is enough to exercise presence, locking, and "updated by".
-- `oidc` (phase 2): standard authorization-code + PKCE flow against Check Point's identity provider, session in an httpOnly, Secure, SameSite=Lax cookie.
+- `oidc` (phase 2, planned only): standard authorization-code + PKCE flow against Check Point's identity provider. Its session cookie must be httpOnly, Secure, SameSite=Lax, and explicitly expire after 12 hours. OIDC is not implemented in Task 6.
 
 Every route reads the user through this one function and a `requireUser` middleware, and `requireRole('meeting_lead')` guards Meeting Mode start/end and settings. The server refuses to boot in production with `AUTH_PROVIDER=dev-stub`. This way phase 2 is a config change plus one new file, not a refactor.
 
