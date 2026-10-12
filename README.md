@@ -4,6 +4,8 @@
 
 Install dependencies with `npm install`, then run `npm run dev` to start the Vite frontend and Express API.
 
+Development API auth uses seeded people. Before starting the API, set `AUTH_DEV_STUB_SECRET` to a random secret of at least 32 characters (for example, generate one with your system password manager); the application does not provide a default signing key. `POST /api/dev/login` accepts `{ "userId": "<seeded person UUID>" }` and sets a 12-hour signed, httpOnly, SameSite=Lax cookie. The first seeded person is the development meeting lead. This endpoint is not mounted in production, and production startup rejects `AUTH_PROVIDER=dev-stub`.
+
 ## PostgreSQL setup
 
 Use a local or disposable development PostgreSQL database. Set `DATABASE_URL` in the process environment to its connection string. Do not point development commands at a valuable or production database. The schema requires PostgreSQL's `pgcrypto` extension (used for UUID defaults); the migration creates it if the database role has permission.
