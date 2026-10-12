@@ -78,6 +78,14 @@ CREATE TABLE rollout_step (
   clusters_total integer CHECK (clusters_total IS NULL OR clusters_total >= 0),
   occurred_on date,
   note text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  created_by uuid REFERENCES person(id) ON DELETE SET NULL,
+  updated_by uuid REFERENCES person(id) ON DELETE SET NULL,
+  version integer NOT NULL DEFAULT 1 CHECK (version > 0),
+  lifecycle text NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active', 'done', 'archived')),
+  done_at timestamptz,
+  archived_at timestamptz,
   CHECK (clusters_done IS NULL OR clusters_total IS NULL OR clusters_done <= clusters_total),
   UNIQUE (deployment_id, sort_order)
 );
