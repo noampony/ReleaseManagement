@@ -29,6 +29,8 @@ const issueFields = {
   started_on: z.string().date(),
   customer_impact: z.string().max(10000).nullable().optional(),
   rca_url: z.string().url().max(2000).nullable().optional(),
+  scope_ids: z.array(uuidSchema).max(100).optional().refine((ids) => !ids || new Set(ids).size === ids.length, 'Scope IDs must be unique'),
+  related_deployment_ids: z.array(uuidSchema).max(100).optional().refine((ids) => !ids || new Set(ids).size === ids.length, 'Deployment IDs must be unique'),
 };
 
 export const createDeploymentSchema = z.object(deploymentFields).strict();
@@ -69,6 +71,12 @@ export const deploymentListQuerySchema = z.object({
   owner: uuidSchema.optional(),
   q: z.string().trim().max(200).optional(),
 }).strict();
+export const issueListQuerySchema = z.object({
+  status: z.enum(['investigation', 'in_progress', 'monitoring', 'resolved']).optional(),
+  severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
+  scope: uuidSchema.optional(),
+  q: z.string().trim().max(200).optional(),
+}).strict();
 export const idParamSchema = z.object({ id: uuidSchema }).strict();
 const deploymentStepFields = {
   sort_order: z.number().int().nonnegative(),
@@ -92,7 +100,7 @@ export const updateRolloutStepSchema = z.object(rolloutStepFields).partial().ext
     message: 'At least one field must be updated',
   });
 export const createActionItemSchema = z.object(actionItemFields).strict();
-export const updateActionItemSchema = z.object(actionItemFields).partial().extend({ version: versionSchema }).strict()
+export const updateActionItemSchema = z.object(actionItemFields).omit({ parent_type: true, parent_id: true }).partial().extend({ version: versionSchema }).strict()
   .refine((body) => Object.keys(body).some((key) => key !== 'version'), {
     message: 'At least one field must be updated',
   });
@@ -113,6 +121,7 @@ export const reorderRolloutStepsSchema = z.object({
 });
 export const versionedMutationSchema = z.object({ version: versionSchema }).strict();
 export const doneDeploymentSchema = z.object({ version: versionSchema }).strict();
+export const doneIssueSchema = z.object({ version: versionSchema }).strict();
 
 export function validateBody(schema: ZodTypeAny): RequestHandler {
   return (request, _response, next) => {

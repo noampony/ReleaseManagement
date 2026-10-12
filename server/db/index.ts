@@ -145,6 +145,39 @@ export async function mutateEntity(options: MutationOptions): Promise<Record<str
   });
 }
 
+/** Transaction-aware form for routes that must update an entity and its parent atomically. */
+export async function mutateEntityInTransaction(client: PoolClient, options: MutationOptions): Promise<Record<string, unknown>> {
+  const definition = mutableEntities[options.entityType];
+  if (!definition || !Number.isInteger(options.expectedVersion) || options.expectedVersion < 1) {
+    throw new TypeError('Invalid mutation entity or expected version');
+  }
+  const fields = Object.keys(options.changes);
+  if (!fields.length || fields.some((field) => !definition.fields.includes(field) || options.changes[field] === undefined)) {
+    throw new TypeError('Mutation contains no changes or an unsupported field');
+  }
+  const selected = await client.query(`SELECT * FROM "${definition.table}" WHERE id = $1 FOR UPDATE`, [options.id]);
+  if (!selected.rows[0]) throw new RecordNotFoundError();
+  const current = selected.rows[0] as Record<string, unknown>;
+  if (current.version !== options.expectedVersion) {
+    const events = await client.query<{ field: string }>(
+      'SELECT field FROM change_event WHERE entity_type = $1 AND entity_id = $2 AND occurred_at >= $3 ORDER BY occurred_at DESC',
+      [options.entityType, options.id, current.updated_at],
+    );
+    const changedFields = [...new Set(events.rows.map((row) => row.field))];
+    throw new VersionConflictError(current, changedFields.length ? changedFields : ['version']);
+  }
+  const assignments = fields.map((field, index) => `"${field}" = $${index + 1}`);
+  assignments.push('version = version + 1', 'updated_at = now()', `updated_by = $${fields.length + 1}`);
+  const updated = await client.query(
+    `UPDATE "${definition.table}" SET ${assignments.join(', ')} WHERE id = $${fields.length + 2} AND version = $${fields.length + 3} RETURNING *`,
+    [...fields.map((field) => options.changes[field]), options.actorId, options.id, options.expectedVersion],
+  );
+  const row = updated.rows[0] as Record<string, unknown>;
+  await insertAuditEvents(client, options.entityType, options.id, options.actorId,
+    Object.fromEntries(fields.map((field) => [field, { old: current[field], new: options.changes[field] }])));
+  return row;
+}
+
 export async function insertAuditEvents(client: PoolClient, entityType: MutableEntityType, entityId: string,
                                        actorId: string, changes: Record<string, { old: unknown; new: unknown }>): Promise<void> {
   for (const [field, values] of Object.entries(changes)) {

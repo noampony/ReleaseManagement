@@ -115,6 +115,12 @@ CREATE TABLE issue_scope (
   PRIMARY KEY (production_issue_id, reference_item_id)
 );
 
+CREATE TABLE issue_deployment (
+  production_issue_id uuid NOT NULL REFERENCES production_issue(id) ON DELETE CASCADE,
+  deployment_id uuid NOT NULL REFERENCES deployment(id) ON DELETE CASCADE,
+  PRIMARY KEY (production_issue_id, deployment_id)
+);
+
 CREATE TABLE action_item (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   parent_type text NOT NULL CHECK (parent_type IN ('deployment', 'production_issue')),
@@ -231,6 +237,7 @@ CREATE INDEX change_event_entity_occurred_at_idx ON change_event (entity_type, e
 CREATE INDEX rollout_step_deployment_sort_order_idx ON rollout_step (deployment_id, sort_order);
 CREATE INDEX reference_item_kind_sort_order_idx ON reference_item (kind, sort_order);
 CREATE INDEX issue_scope_reference_item_idx ON issue_scope (reference_item_id, production_issue_id);
+CREATE INDEX issue_deployment_deployment_idx ON issue_deployment (deployment_id, production_issue_id);
 CREATE INDEX commitment_note_jira_created_at_idx ON commitment_note (jira_key, created_at DESC);
 CREATE INDEX jira_link_key_idx ON jira_link (jira_key);
 CREATE INDEX meeting_coverage_entity_idx ON meeting_coverage (entity_type, entity_id);
@@ -247,6 +254,7 @@ DROP TABLE IF EXISTS commitment_note;
 DROP TABLE IF EXISTS commitment_cache;
 DROP TABLE IF EXISTS action_item;
 DROP TABLE IF EXISTS issue_scope;
+DROP TABLE IF EXISTS issue_deployment;
 DROP TABLE IF EXISTS production_issue;
 DROP TABLE IF EXISTS rollout_step;
 DROP TABLE IF EXISTS deployment_owner;

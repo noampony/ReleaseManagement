@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getActor, requireUser } from '../auth/index.js';
-import { mutateEntity, query, RecordNotFoundError, withTransaction, insertAuditEvents, VersionConflictError } from '../db/index.js';
+import { mutateEntity, mutateEntityInTransaction, query, RecordNotFoundError, withTransaction, insertAuditEvents, VersionConflictError } from '../db/index.js';
 import { HttpError } from '../http/errors.js';
 import {
   createActionItemSchema, createDeploymentStepSchema, doneDeploymentSchema, idParamSchema, reorderRolloutStepsSchema,
@@ -85,17 +85,18 @@ releaseManagementRouter.post('/deployments/:id/done', validateParams(idParamSche
 releaseManagementRouter.post('/action-items', validateBody(createActionItemSchema), async (request, response, next) => {
   try {
     const actor = getActor(request); const body = request.body as Record<string, unknown>;
-    if (body.parent_type !== 'deployment') throw new HttpError(400, 'unsupported_parent', 'Only deployment action items are supported by this API');
+    if (body.parent_type !== 'deployment' && body.parent_type !== 'production_issue') throw new HttpError(400, 'unsupported_parent', 'Unsupported action-item parent type');
     const fields = Object.keys(body); const values = fields.map((field) => body[field]);
     const result = await withTransaction(async (client) => {
-      const parent = await client.query('SELECT id, lifecycle FROM deployment WHERE id = $1 FOR UPDATE', [body.parent_id]);
+      const parentTable = body.parent_type === 'deployment' ? 'deployment' : 'production_issue';
+      const parent = await client.query(`SELECT id, lifecycle FROM ${parentTable} WHERE id = $1 FOR UPDATE`, [body.parent_id]);
       if (!parent.rows[0]) throw new RecordNotFoundError();
-      if (parent.rows[0].lifecycle !== 'active') throw new HttpError(409, 'invalid_transition', 'Action items can only be added to active deployments');
+      if (parent.rows[0].lifecycle !== 'active') throw new HttpError(409, 'invalid_transition', 'Action items can only be added to active records');
       const inserted = await client.query(`INSERT INTO action_item (${fields.map((field) => `"${field}"`).join(', ')}, created_by, updated_by) VALUES (${fields.map((_, index) => `$${index + 1}`).join(', ')}, $${fields.length + 1}, $${fields.length + 1}) RETURNING *`, [...values, actor.id]);
       const row = inserted.rows[0] as Record<string, unknown>;
       await insertAuditEvents(client, 'action_item', String(row.id), actor.id, Object.fromEntries(fields.map((field) => [field, { old: null, new: body[field] }])));
-      await client.query('UPDATE deployment SET version = version + 1, updated_at = now(), updated_by = $1 WHERE id = $2', [actor.id, body.parent_id]);
-      await insertAuditEvents(client, 'deployment', String(body.parent_id), actor.id, { action_items: { old: null, new: String(row.id) } });
+      await client.query(`UPDATE ${parentTable} SET version = version + 1, updated_at = now(), updated_by = $1 WHERE id = $2`, [actor.id, body.parent_id]);
+      await insertAuditEvents(client, body.parent_type as 'deployment' | 'production_issue', String(body.parent_id), actor.id, { action_items: { old: null, new: String(row.id) } });
       return row;
     });
     response.status(201).json(result);
@@ -105,7 +106,22 @@ releaseManagementRouter.post('/action-items', validateBody(createActionItemSchem
 releaseManagementRouter.patch('/action-items/:id', validateParams(idParamSchema), validateBody(updateActionItemSchema), async (request, response, next) => {
   try {
     const { version, ...changes } = request.body as Record<string, unknown>;
-    response.json(await mutateEntity({ entityType: 'action_item', id: request.params.id, expectedVersion: version as number, actorId: getActor(request).id, changes }));
+    const updated = await withTransaction(async (client) => {
+      const current = await client.query('SELECT * FROM action_item WHERE id = $1 FOR UPDATE', [request.params.id]);
+      if (!current.rows[0]) throw new RecordNotFoundError();
+      const item = current.rows[0] as Record<string, unknown>;
+      const parentTable = item.parent_type === 'deployment' ? 'deployment' : 'production_issue';
+      const parent = await client.query(`SELECT id FROM ${parentTable} WHERE id = $1 FOR UPDATE`, [item.parent_id]);
+      if (!parent.rows[0]) throw new RecordNotFoundError();
+      const row = await mutateEntityInTransaction(client, {
+        entityType: 'action_item', id: request.params.id, expectedVersion: version as number,
+        actorId: getActor(request).id, changes,
+      });
+      await client.query(`UPDATE ${parentTable} SET version = version + 1, updated_at = now(), updated_by = $1 WHERE id = $2`, [getActor(request).id, item.parent_id]);
+      await insertAuditEvents(client, item.parent_type as 'deployment' | 'production_issue', String(item.parent_id), getActor(request).id, { action_items: { old: 'updated', new: String(row.id) } });
+      return row;
+    });
+    response.json(updated);
   } catch (error) { next(error); }
 });
 
@@ -113,9 +129,12 @@ releaseManagementRouter.get('/action-items', async (request, response, next) => 
   try {
     const parentId = request.query.parent_id;
     if (typeof parentId !== 'string' || !idParamSchema.shape.id.safeParse(parentId).success) throw new HttpError(400, 'validation_error', 'parent_id must be a UUID');
-    const parent = await query('SELECT id FROM deployment WHERE id = $1', [parentId]);
+    const parentType = request.query.parent_type;
+    if (parentType !== 'deployment' && parentType !== 'production_issue') throw new HttpError(400, 'validation_error', 'parent_type must be deployment or production_issue');
+    const parentTable = parentType === 'deployment' ? 'deployment' : 'production_issue';
+    const parent = await query(`SELECT id FROM ${parentTable} WHERE id = $1`, [parentId]);
     if (!parent.rows[0]) throw new RecordNotFoundError();
-    const result = await query('SELECT * FROM action_item WHERE parent_type = \'deployment\' AND parent_id = $1 ORDER BY sort_order', [parentId]);
+    const result = await query('SELECT * FROM action_item WHERE parent_type = $1 AND parent_id = $2 ORDER BY sort_order, id', [parentType, parentId]);
     response.json(result.rows);
   } catch (error) { next(error); }
 });

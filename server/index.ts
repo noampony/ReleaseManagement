@@ -3,6 +3,7 @@ import { assertAuthConfiguration, createDevLoginHandler, requireUser } from './a
 import { errorHandler } from './http/errors.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { releaseManagementRouter } from './routes/release-management.js';
+import { issuesRouter } from './routes/issues.js';
 
 assertAuthConfiguration();
 
@@ -23,6 +24,7 @@ app.get('/api/auth/me', requireUser, (_request, response) => {
 });
 
 app.use('/api/deployments', deploymentsRouter);
+app.use('/api/issues', issuesRouter);
 app.use('/api', releaseManagementRouter);
 
 app.use(errorHandler);
