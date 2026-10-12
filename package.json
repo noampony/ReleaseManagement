@@ -6,11 +6,15 @@
     "dev": "concurrently -k -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "tsx watch server/index.ts",
     "dev:web": "vite",
+    "db:migrate": "node-pg-migrate up",
+    "db:rollback": "node-pg-migrate down",
+    "db:seed": "tsx scripts/seed.ts",
     "build": "tsc -b && vite build && tsc -p server/tsconfig.json",
     "start:api": "node server/dist/index.js"
   },
   "dependencies": {
     "express": "^5.1.0",
+    "pg": "^8.16.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -21,6 +25,7 @@
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^9.2.0",
+    "node-pg-migrate": "^7.9.1",
     "tsx": "^4.20.3",
     "typescript": "~5.8.3",
     "vite": "^6.3.5"
