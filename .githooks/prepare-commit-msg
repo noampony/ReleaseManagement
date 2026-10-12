@@ -1,0 +1,47 @@
+#!/bin/sh
+# Enforce the personal author and committer identity for this repository.
+
+expected_email='noampong@gmail.com'
+
+author_ident=$(git var GIT_AUTHOR_IDENT) || exit 1
+committer_ident=$(git var GIT_COMMITTER_IDENT) || exit 1
+author_email=$(printf '%s\n' "$author_ident" | sed -n 's/^.*<\([^<>]*\)> [0-9][0-9]* [+-][0-9][0-9][0-9][0-9]$/\1/p')
+committer_email=$(printf '%s\n' "$committer_ident" | sed -n 's/^.*<\([^<>]*\)> [0-9][0-9]* [+-][0-9][0-9][0-9][0-9]$/\1/p')
+
+if [ "$author_email" != "$expected_email" ] || [ "$committer_email" != "$expected_email" ]; then
+    printf 'Commit blocked: this repository requires author and committer email %s.\n' "$expected_email" >&2
+    printf 'Current author: %s; committer: %s.\n' "$author_email" "$committer_email" >&2
+    printf 'Run: git config --local user.email %s\n' "$expected_email" >&2
+    exit 1
+fi
+
+# Put a Jira ticket at the start of the subject when the branch has one.
+msg_file="$1"
+source="$2"
+
+# Merges and squashes get their message from git itself. Leave them alone.
+case "$source" in
+    merge|squash) exit 0 ;;
+esac
+
+branch=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0  # detached HEAD
+ticket=$(printf '%s\n' "$branch" | grep -o -E '[A-Z][A-Z0-9]*-[0-9]+' | head -n 1)
+[ -n "$ticket" ] || exit 0
+
+subject=$(sed -n '1p' "$msg_file")
+
+# `git commit --fixup` / `--squash` build a subject git needs untouched.
+case "$subject" in
+    fixup!*|squash!*|amend!*) exit 0 ;;
+esac
+
+# Already there, in any position on the subject line. Nothing to do.
+case "$subject" in
+    *"$ticket"*) exit 0 ;;
+esac
+
+tmp="$msg_file.ticket.$$"
+awk -v ticket="$ticket" '
+    NR == 1 { print (length($0) ? ticket " " $0 : ticket " "); next }
+    { print }
+' "$msg_file" > "$tmp" && mv "$tmp" "$msg_file"
