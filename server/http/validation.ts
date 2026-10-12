@@ -18,6 +18,7 @@ const deploymentFields = {
   qa_link: z.string().url().max(2000).nullable().optional(),
   confluence_url: z.string().url().max(2000).nullable().optional(),
   state: z.enum(['planned', 'qa', 'in_rollout', 'done', 'reverted']).optional(),
+  owner_ids: z.array(uuidSchema).max(100).optional().refine((ids) => !ids || new Set(ids).size === ids.length, 'Owner IDs must be unique'),
 };
 
 const issueFields = {
@@ -69,7 +70,7 @@ export const deploymentListQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
 }).strict();
 export const idParamSchema = z.object({ id: uuidSchema }).strict();
-export const createDeploymentStepSchema = z.object({
+const deploymentStepFields = {
   sort_order: z.number().int().nonnegative(),
   label: rolloutStepFields.label,
   scope_ref_id: rolloutStepFields.scope_ref_id,
@@ -78,7 +79,13 @@ export const createDeploymentStepSchema = z.object({
   clusters_total: rolloutStepFields.clusters_total,
   occurred_on: rolloutStepFields.occurred_on,
   note: rolloutStepFields.note,
-}).strict();
+};
+export const createDeploymentStepSchema = z.object(deploymentStepFields).strict().refine((step) => step.clusters_done == null || step.clusters_total == null || step.clusters_done <= step.clusters_total,
+  { message: 'Completed clusters cannot exceed total clusters', path: ['clusters_done'] });
+export const updateDeploymentStepSchema = z.object(deploymentStepFields).partial().extend({ version: versionSchema }).strict()
+  .refine((body) => Object.keys(body).some((key) => key !== 'version'), { message: 'At least one field must be updated' })
+  .refine((body) => body.clusters_done == null || body.clusters_total == null || body.clusters_done <= body.clusters_total,
+    { message: 'Completed clusters cannot exceed total clusters', path: ['clusters_done'] });
 export const createRolloutStepSchema = z.object(rolloutStepFields).strict();
 export const updateRolloutStepSchema = z.object(rolloutStepFields).partial().extend({ version: versionSchema }).strict()
   .refine((body) => Object.keys(body).some((key) => key !== 'version'), {
