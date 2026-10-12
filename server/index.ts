@@ -1,6 +1,8 @@
 import express from 'express';
 import { assertAuthConfiguration, createDevLoginHandler, requireUser } from './auth/index.js';
 import { errorHandler } from './http/errors.js';
+import { deploymentsRouter } from './routes/deployments.js';
+import { releaseManagementRouter } from './routes/release-management.js';
 
 assertAuthConfiguration();
 
@@ -19,6 +21,9 @@ if (devLoginHandler) app.post('/api/dev/login', devLoginHandler);
 app.get('/api/auth/me', requireUser, (_request, response) => {
   response.status(200).json(response.locals.user);
 });
+
+app.use('/api/deployments', deploymentsRouter);
+app.use('/api', releaseManagementRouter);
 
 app.use(errorHandler);
 
